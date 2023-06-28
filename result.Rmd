@@ -1,0 +1,269 @@
+---
+title: ""
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    collapsed: false
+    number_sections: false
+    toc_depth: 5
+    
+    #code_folding: hide
+---
+
+
+```{r setup, include=FALSE, results='hide'}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, results='hide')
+```
+
+## **Abstract**
+
+This analysis aims to understand user's behavior and develop strategies to increase the number of subscribers in the city of Chicago. Until now, Cyclistic’s marketing strategy relied on building general awareness and appealing to broad consumer segments.  This is an alternative approach which recommends narrowing the scope of the marketing campaign by targeting early riders and evening riders. Based on the historical trip records between "2021-11-01" and "2022-10-30", the data describes two types of casual-user behavior that could instruct the marketing team to develop conversion strategies. Examining the ridership of causal users during the early hours (6-9 AM) and late hours (8 PM-12 AM), reveals that causal-users follow patterns of work-commute times and late evening entertainment, respectively. Using this knowledge, it is encouraged to promote marketing campaigns focused on these time intervals.
+
+Key assumptions:
+
+1) This analysis assumes that Early riders (6-9 AM) and Late riders (8 PM-12 AM), are motivated by constant factors such as work and evening entertainment, rather than random recreational use or tourism.
+
+2) Marketing campaign's success will be measure by quantifying the change in subscriptions during these two time intervals.
+
+
+```{r,  echo=FALSE}
+library(tidyverse)
+library(crosstable)
+library(gmodels)
+library(sf)
+library(mapview)
+```
+
+```{r, echo=FALSE}
+
+clnBikeda <- read.csv('webData.csv',  header = TRUE)
+
+
+```
+
+#### **Collecting and Processing Data**
+
+The trip history data has been made available to the public by Motivate International Inc. This is public data to explore how different customer types are using bikes. Once the data collection was completed, the process of identifying, correcting, and removing inaccurate data was performed with R. The interquartile range method was used to remove outliers. For example, elements with negative values, duplicates, and extreme ride duration. 
+
+
+#### **General Data Insights**
+
+The data collected show seasonal trends. Ridership increases during spring time and begins to decline at the end of summer. The lowest ridership numbers coincide with the months of cold weather in Chicago. Therefore, the marketing campaign should leverage the months with high traffic. 
+
+```{r echo=FALSE, fig.height=4, fig.width=9}
+clnBikeda$day_of_week <-ordered(clnBikeda$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+
+
+clnBikeda%>% 
+ group_by(member_casual,month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length_min)) %>% 
+  arrange(member_casual, month)  %>% 
+  ggplot(aes(x = month, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge")+scale_y_continuous(breaks = seq(0,3000000,200000),labels=scales::comma)+ ggtitle("Number of Rides per Month") 
+
+```
+
+A weekly time frame show high weekend traffic for both, member and casual riders, but lower ridership for non-members during the weekday. 
+
+
+```{r echo=FALSE, fig.height=4, fig.width=9}
+
+clnBikeda %>% 
+ group_by(member_casual,day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_distance = mean(distance))%>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge")+scale_y_continuous(breaks = seq(0,3000000,200000),labels=scales::comma)+
+  ggtitle("Number of Rides per Day (Annual Totals)") 
+
+```
+
+A larger percentage of riders cluster around the coastal section of the city. (Map of 1K random observations) 
+
+```{r echo=FALSE, fig.height=4, fig.width=9, results='asis'}
+# This section creates a subplot for the maps
+early_c<- clnBikeda%>% sample_n(10000) # a sample 1000
+early_c <- filter(clnBikeda, clnBikeda$Hour >6 & clnBikeda$Hour <10, member_casual =='casual')%>% mutate(member_casual = str_replace(member_casual, "casual", "casual_early"))
+early_m<- clnBikeda%>% sample_n(10000)
+early_m<- filter(clnBikeda, clnBikeda$Hour >6 & clnBikeda$Hour <10, member_casual =='member')%>% mutate(member_casual = str_replace(member_casual, "member", "member_early"))
+sample <- clnBikeda%>% sample_n(10000)
+sample<- filter(clnBikeda, clnBikeda$Hour >10 & clnBikeda$Hour <24)#%>% mutate(member_casual = str_replace(member_casual, "member", "member_early"))
+
+
+# map
+
+clterP<- rbind(sample, early_c, early_m)
+MapData <- clterP %>% sample_n(1000)
+
+mapview(MapData, xcol = "start_lng", ycol = "start_lat", crs = 4269, grid = FALSE, zcol = c( "member_casual"))
+```
+
+The next plots illustrate the common starts and end locations of early riders vs late riders (after 10:00AM). Accurate knowledge of high density starting/ending locations could inform the marketing team how to effectively use 'out of home' ads, also known as street advertising.
+
+
+```{r echo=FALSE, fig.height=5, fig.width=9}
+## Group the data for each segment
+
+
+
+
+endingPlot <- clterP%>% select("end_lat","end_lng", "ride_length_min", "distance","member_casual","rideable_type")
+startPlot<- clterP%>% select("start_lat","start_lng","ride_length_min","distance","member_casual","rideable_type")
+
+
+bikinStart<- startPlot%>% sample_n(10000)
+ggplot(bikinStart)+
+ geom_point(aes(x = start_lng, y = start_lat, colour = member_casual), stroke = 2)+
+ facet_wrap(~ member_casual)+ 
+ labs(x = "start_lng", y = "start_lat")+
+ theme_bw()+ ggtitle("Starting Coordinates") 
+
+
+bikingEnd<- endingPlot%>% sample_n(10000)
+ggplot(bikingEnd)+
+ geom_point(aes(x = end_lng, y = end_lat, colour = member_casual), stroke = 2)+
+ facet_wrap(~ member_casual)+ 
+ labs(x = "end_lat", y = "end_lng")+theme_bw()+ ggtitle("Ending Coordinates") 
+
+```
+
+In this period of observation, subscribers accounted for the majority of the trips, approximately 60%. 
+
+
+```{r echo=FALSE, fig.height=2, fig.width=9}
+
+clnBikeda %>%group_by(member_casual) %>% summarise(n = n())%>% mutate(Percent = n/sum(n)*100)%>%
+ggplot(aes(x = member_casual, y = Percent, fill = member_casual))+ geom_col()
+
+```
+
+In addition, we also notice a difference in the type of bikes customers prefer. 
+
+
+```{r echo=FALSE, fig.height=2, fig.width=9}
+clnBikeda%>%group_by(member_casual,rideable_type) %>% summarise(n = n())%>% mutate(Percent = n/sum(n)*100)%>%
+ggplot(aes(x = member_casual, y = Percent, fill = rideable_type))+ geom_col()
+
+
+```
+
+However, regardless of bike type, the average trip distance for members and casual users is approximately equal. One the other hand, non-member's average time per ride is lengthier.  
+
+```{r echo=FALSE, fig.height=3, fig.width=9}
+clnBikeda %>% 
+ group_by(member_casual,day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_distance = mean(distance)/1000)%>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = average_distance, fill = member_casual)) +
+  geom_col(position = "dodge")+#scale_y_continuous(breaks = seq(0,3000000,200000),labels=scales::comma)+
+  ggtitle("Average Distance (Km)") 
+```
+
+
+
+
+```{r echo=FALSE, fig.height=3, fig.width=9}
+clnBikeda %>% 
+ group_by(member_casual,day_of_week) %>% 
+  summarise(number_of_rides = n()
+            ,average_time = mean(ride_length_min))%>% 
+  arrange(member_casual, day_of_week)  %>% 
+  ggplot(aes(x = day_of_week, y = average_time, fill = member_casual)) +
+  geom_col(position = "dodge")+#scale_y_continuous(breaks = seq(0,3000000,200000),labels=scales::comma)+
+  ggtitle("Average Trip Length (Min)") 
+
+```
+
+
+This is true except during morning hours. 
+
+```{r echo=FALSE, fig.height=3, fig.width=9}
+d <-clnBikeda%>% group_by(member_casual,month, Hour) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length_min)) %>% 
+            arrange(member_casual, month) 
+
+d %>% ggplot(aes(x = Hour, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge")+#scale_y_continuous(breaks = seq(0,3000000,200000),labels=scales::comma)+
+  ggtitle("Average Trip Duration") +geom_vline(xintercept=6)+geom_vline(xintercept=9)+geom_hline(yintercept=10)
+
+
+
+```
+
+
+#### **Brief Analysis**
+
+The following density plot shows the hourly distribution for both members and causal users. In it, two distinct peaks for the subscriber class emerge, which coincide with the to-and-fro of work commuting. After business day hours, we see an increase in the density of causal user and a decline in member trips.  This is particularly interesting for several reasons:(1)just like the member class, the number of causal users experience an increases between 6:00-9:00AM, which suggest that there is a demand for commuting to work (2) given the demand, we posit that this segment of causal user are more persuadable by marketing; and 3)unlike the member class, the number of casual users increases after 8:00PM, equally expressing a strong demand for bike services during the night entertainment hours. Tables 1 and 2 summarize the totals per class category during the morning and evening periods.
+
+#### **Findings**
+
+* This dataset exhibits seasonal trends with the highest traffic between March and October. 
+
+* Approximately 22% of rides between 6:00-9:00AM were made by casual users. This ratio increases to 45% after 8:00PM. 
+
+* Casual users show a higher preference for eBikes. 
+
+* Both early_casual and early_subscriber have similar starting and ending location. 
+
+
+
+
+
+```{r echo=FALSE, fig.height=5, fig.width=9}
+
+clnBikeda%>% filter(clnBikeda$Hour >5 & clnBikeda$Hour <24)%>%
+  group_by(member_casual) %>% 
+  ggplot(aes(x = Hour,
+             y = reorder(member_casual,Hour),
+             fill = member_casual)) +ggridges::stat_density_ridges(bandwidth = 0.6,
+                                quantile_lines = FALSE,   # adds median indicator
+                                quantiles = (0.5)
+                                ) + labs(title = "Hourly Density Plot")+geom_vline(xintercept=6)+geom_vline(xintercept=9)+geom_vline(xintercept=20)+geom_vline(xintercept=20)+geom_vline(xintercept=23)
+  theme(legend.position = "none")
+
+```
+
+
+**Table 1.** Describes the percentages per class and ride preference during the work commuting hours (6-9AM).
+
+```{r echo=FALSE, results='asis'}
+earlyRide<-clnBikeda %>% filter(Hour>6 & Hour<10)
+crosstable(earlyRide, c(member_casual), by=rideable_type, showNA="no", 
+           percent_digits=0, percent_pattern="{n} ({p_col}/{p_row})") %>% 
+  as_flextable(keep_id=TRUE)
+
+```
+
+**Table 2.** Describes the percentages per class and ride preference during the night-entertainment hours-8:00PM-12:00AM.
+```{r echo=FALSE, results='asis'}
+lateRide<-clnBikeda %>% filter(Hour>20 & Hour<24)
+crosstable(lateRide, c(member_casual), by=rideable_type, showNA="no", 
+           percent_digits=0, percent_pattern="{n} ({p_col}/{p_row})") %>% 
+  as_flextable(keep_id=TRUE)
+
+```
+
+### **Recommendation**
+
+This analysis recommends narrowing the scope of the marketing campaign by targeting early riders and evening riders. First, the data shows evidence of strong demand for these services, accounting for roughly 22% of annual ridership during the morning hours and 45% after 8:00 PM. Second,leverage the user's preferences and geo-location to design marketing campaigns. 
+
+**The strategy:**
+
+* Employing specific advertisements during a set period and location.
+  * Transform geo-location information to effective use 'out of home' ads.
+  * Send digital ads at specific time intervals. 
+* Propose digital ads that promote lower-price incentives to convert customers. 
+  * Add subscription tier that targets high traffic month at a reduce price. For example, March-to-October for 80 USDs 
+* Leverage casual-user's ride-type preferences. For example, make emphasis of e-Bikes.
+
+
+#### **Data Limitations**
+
+This is public data to explore how different customer types are using bikes. However, it does not have important information such gender, availability of rides per station, rider_id; or other features that would help to enrich the analysis. For example, how to determine if casual riders live in the service area.  
+
+
